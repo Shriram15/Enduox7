@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENDUOX7 - Endurance Lap Timer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- SETUP SCREEN -->
+    <div id="setup-screen" class="screen active">
+        <div class="glass-panel setup-panel">
+            <h1>ENDUOX7</h1>
+            <p class="subtitle">Race Configuration</p>
+            
+            <div class="form-group">
+                <label for="num-teams">Number of Teams</label>
+                <input type="number" id="num-teams" value="10" min="2" max="50">
+            </div>
+            
+            <div class="form-group">
+                <label for="max-laps">Laps per Hour</label>
+                <input type="number" id="max-laps" value="14" min="1" max="100">
+            </div>
+            
+            <div class="form-group">
+                <label for="max-time">Hour Duration (Seconds)</label>
+                <input type="number" id="max-time" value="3600" min="60" max="7200">
+            </div>
+
+            <button id="btn-save-start" class="btn-primary">Initialize Race Dashboard</button>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="dashboard-screen" class="screen">
+        
+        <header class="top-nav glass-panel">
+            <div class="brand">
+                <h1>ENDUOX7</h1>
+                <div class="race-state-badge" id="race-state-badge">Waiting</div>
+            </div>
+            
+            <div class="timer-section">
+                <div class="current-hour" id="display-hour">Hour 1</div>
+                <div class="global-time" id="global-timer">00:00:00</div>
+            </div>
+            
+            <div class="header-actions">
+                <button id="btn-start-hour" class="btn-accent">Start Hour 1</button>
+                <button id="btn-export" class="btn-outline">↓ Export Excel</button>
+                <button id="btn-reset" class="btn-danger">Reset</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- LEADERBOARD & EVENT LOG -->
+            <aside class="sidebar">
+                <div class="glass-panel leaderboard-panel">
+                    <h2>🏆 Leaderboard</h2>
+                    <div id="leaderboard-list" class="list-container">
+                        <!-- populated via JS -->
+                    </div>
+                </div>
+
+                <div class="glass-panel log-panel">
+                    <h2>📝 Event Log</h2>
+                    <div id="event-log" class="list-container">
+                        <!-- populated via JS -->
+                    </div>
+                </div>
+            </aside>
+
+            <!-- TEAM GRID -->
+            <main class="grid-container">
+                <div id="teams-grid" class="teams-grid">
+                    <!-- populated via JS -->
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- TEMPLATES -->
+    <template id="tpl-team-card">
+        <div class="team-card glass-panel" data-bib="">
+            <div class="card-header">
+                <h3>Team <span class="bib-num"></span></h3>
+                <div class="status-badge">Active</div>
+            </div>
+            
+            <div class="card-stats">
+                <div class="stat-box">
+                    <span class="label">Hour Laps</span>
+                    <span class="val lap-count">0/14</span>
+                </div>
+                <div class="stat-box">
+                    <span class="label">Total Laps</span>
+                    <span class="val total-laps">0</span>
+                </div>
+            </div>
+
+            <div class="progress-track">
+                <div class="progress-fill"></div>
+            </div>
+
+            <div class="card-actions">
+                <div class="lap-buttons">
+                    <button class="btn-lap btn-male" data-runner="M">+ Lap M</button>
+                    <button class="btn-lap btn-female" data-runner="F">+ Lap F</button>
+                </div>
+                
+                <div class="dnf-actions">
+                    <button class="btn-dnf" data-runner="M" title="DNF Male">M ❌</button>
+                    <button class="btn-dnf" data-runner="F" title="DNF Female">F ❌</button>
+                    <button class="btn-dnf" data-runner="BOTH" title="DNF Entire Team">Team DNF</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <div id="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
