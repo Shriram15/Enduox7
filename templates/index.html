@@ -11,26 +11,42 @@
 
     <!-- SETUP SCREEN -->
     <div id="setup-screen" class="screen active">
-        <div class="glass-panel setup-panel">
+        <div class="glass-panel setup-panel" style="max-width: 600px;">
             <h1>ENDUOX7</h1>
-            <p class="subtitle">Race Configuration</p>
+            <p class="subtitle">Race Configuration & Registration</p>
             
-            <div class="form-group">
-                <label for="num-teams">Number of Teams</label>
-                <input type="number" id="num-teams" value="10" min="2" max="50">
-            </div>
-            
-            <div class="form-group">
-                <label for="max-laps">Laps per Hour</label>
-                <input type="number" id="max-laps" value="14" min="1" max="100">
-            </div>
-            
-            <div class="form-group">
-                <label for="max-time">Hour Duration (Seconds)</label>
-                <input type="number" id="max-time" value="3600" min="60" max="7200">
+            <div class="config-row">
+                <div class="form-group">
+                    <label for="max-time">Hour Duration (Secs)</label>
+                    <input type="number" id="max-time" value="3600" min="60" max="7200">
+                </div>
+                <button id="btn-save-config" class="btn-outline" style="margin-top: 22px;">Save Config</button>
             </div>
 
-            <button id="btn-save-start" class="btn-primary">Initialize Race Dashboard</button>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
+
+            <div class="registration-form">
+                <div class="form-group">
+                    <label>Bib #</label>
+                    <input type="number" id="reg-bib" placeholder="e.g. 1" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="reg-category" class="styled-select">
+                        <option value="duo">Duo (14 Laps/Hr)</option>
+                        <option value="solo_m">Solo Male (14 Laps/Hr)</option>
+                        <option value="solo_f">Solo Female (12 Laps/Hr)</option>
+                    </select>
+                </div>
+                <button id="btn-add-team" class="btn-primary" style="margin-top: 22px;">+ Add Team</button>
+            </div>
+
+            <div class="registered-teams-list">
+                <h3>Registered Teams (<span id="reg-count">0</span>)</h3>
+                <div id="reg-teams-container"></div>
+            </div>
+
+            <button id="btn-start-race" class="btn-accent" style="margin-top: 20px; width: 100%; padding: 15px; font-size: 1.2rem;">Start Race Dashboard</button>
         </div>
     </div>
 
@@ -60,8 +76,19 @@
             <aside class="sidebar">
                 <div class="glass-panel leaderboard-panel">
                     <h2>🏆 Leaderboard</h2>
-                    <div id="leaderboard-list" class="list-container">
-                        <!-- populated via JS -->
+                    <div class="leaderboard-grid">
+                        <div class="lb-box">
+                            <h3>Duo</h3>
+                            <div id="leaderboard-duo" class="list-container"></div>
+                        </div>
+                        <div class="lb-box">
+                            <h3>Solo M</h3>
+                            <div id="leaderboard-solom" class="list-container"></div>
+                        </div>
+                        <div class="lb-box">
+                            <h3>Solo F</h3>
+                            <div id="leaderboard-solof" class="list-container"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -74,9 +101,16 @@
             </aside>
 
             <!-- TEAM GRID -->
-            <main class="grid-container">
-                <div id="teams-grid" class="teams-grid">
+            <main class="grid-container" style="display: flex; flex-direction: column;">
+                <div id="teams-grid" class="teams-grid" style="flex: 1;">
                     <!-- populated via JS -->
+                </div>
+                
+                <!-- FAST ENTRY BAR -->
+                <div class="fast-entry-bar glass-panel" id="fast-entry-container">
+                    <label for="fast-entry-input">⚡ Fast Entry</label>
+                    <input type="text" id="fast-entry-input" placeholder="Type bib or comma list (e.g. 12m,5,8f) and press Enter" autocomplete="off">
+                    <div class="fast-entry-hint">Duo: type 'm' or 'f' after bib. Solo: just type bib. Use commas for multiple bibs.</div>
                 </div>
             </main>
         </div>
@@ -86,7 +120,7 @@
     <template id="tpl-team-card">
         <div class="team-card glass-panel" data-bib="">
             <div class="card-header">
-                <h3>Team <span class="bib-num"></span></h3>
+                <h3>Team <span class="bib-num"></span> <span class="cat-badge"></span></h3>
                 <div class="status-badge">Active</div>
             </div>
             
@@ -112,9 +146,9 @@
                 </div>
                 
                 <div class="dnf-actions">
-                    <button class="btn-dnf" data-runner="M" title="DNF Male">M ❌</button>
-                    <button class="btn-dnf" data-runner="F" title="DNF Female">F ❌</button>
-                    <button class="btn-dnf" data-runner="BOTH" title="DNF Entire Team">Team DNF</button>
+                    <button class="btn-dnf dnf-m" data-runner="M" title="DNF Male">M ❌</button>
+                    <button class="btn-dnf dnf-f" data-runner="F" title="DNF Female">F ❌</button>
+                    <button class="btn-dnf dnf-all" data-runner="BOTH" title="DNF Entire Team">Team DNF</button>
                 </div>
             </div>
         </div>
