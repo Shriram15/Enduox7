@@ -25,7 +25,7 @@
 
             <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
 
-            <div class="registration-form">
+                <div class="registration-form">
                 <div class="form-group">
                     <label>Bib #</label>
                     <input type="number" id="reg-bib" placeholder="e.g. 1" min="1">
@@ -38,11 +38,11 @@
                         <option value="solo_f">Solo Female (12 Laps/Hr)</option>
                     </select>
                 </div>
-                <button id="btn-add-team" class="btn-primary" style="margin-top: 22px;">+ Add Team</button>
+                <button id="btn-add-team" class="btn-primary" style="margin-top: 22px;">+ Add Bib</button>
             </div>
 
             <div class="registered-teams-list">
-                <h3>Registered Teams (<span id="reg-count">0</span>)</h3>
+                <h3>Registered Bibs (<span id="reg-count">0</span>)</h3>
                 <div id="reg-teams-container"></div>
             </div>
 
@@ -119,9 +119,12 @@
     <!-- TEMPLATES -->
     <template id="tpl-team-card">
         <div class="team-card glass-panel" data-bib="">
-            <div class="card-header">
-                <h3>Team <span class="bib-num"></span> <span class="cat-badge"></span></h3>
-                <div class="status-badge">Active</div>
+                <div class="card-header">
+                    <h3>Bib <span class="bib-num"></span> <span class="cat-badge"></span></h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <div class="status-badge">Active</div>
+                        <div class="winner-badge hidden">🏆 Winner</div>
+                    </div>
             </div>
             
             <div class="card-stats">
@@ -148,7 +151,10 @@
                 <div class="dnf-actions">
                     <button class="btn-dnf dnf-m" data-runner="M" title="DNF Male">M ❌</button>
                     <button class="btn-dnf dnf-f" data-runner="F" title="DNF Female">F ❌</button>
-                    <button class="btn-dnf dnf-all" data-runner="BOTH" title="DNF Entire Team">Team DNF</button>
+                    <button class="btn-dnf dnf-all" data-runner="BOTH" title="DNF Entire Bib">Bib DNF</button>
+                </div>
+                <div style="margin-top:8px; display:flex; gap:8px;">
+                    <button class="btn-outline btn-delete-lap">Delete Last Lap</button>
                 </div>
             </div>
         </div>

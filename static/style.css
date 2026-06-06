@@ -94,6 +94,13 @@ button { font-family: var(--font-heading); cursor:pointer; border:none; border-r
 .list-container::-webkit-scrollbar { width:6px; }
 .list-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius:3px; }
 
+/* Keep leaderboards and logs scrollable with sensible max heights */
+.leaderboard-panel .list-container { max-height: 260px; }
+.log-panel .list-container { max-height: 380px; }
+
+.lb-winner { margin-left: 8px; color: gold; font-weight:700; }
+.lb-item.winner { background: rgba(255, 215, 0, 0.04); }
+
 .lb-item { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.05); cursor: default; }
 .lb-item:hover { background: rgba(255,255,255,0.02); }
 .lb-item.dnf { opacity:0.5; }
@@ -114,6 +121,10 @@ button { font-family: var(--font-heading); cursor:pointer; border:none; border-r
 .team-card { padding:12px; display:flex; flex-direction:column; gap:10px; transition: transform 0.2s; }
 .team-card:hover { transform: translateY(-2px); }
 .team-card.dnf { opacity:0.5; filter: grayscale(1); }
+.team-card.disabled { opacity:0.35; }
+.team-card.winner { box-shadow: 0 6px 30px rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.12); }
+.winner-badge { color: gold; font-weight:800; padding:4px 8px; border-radius:8px; background: rgba(255,215,0,0.06); }
+.winner-badge.hidden { display:none; }
 .card-header { display:flex; justify-content:space-between; align-items:center; }
 .card-header h3 { font-size:1.1rem; display:flex; align-items:center; gap:6px; }
 .cat-badge { font-size:0.7rem; padding:3px 6px; border-radius:6px; background: rgba(255,255,255,0.06); }
@@ -156,6 +167,12 @@ button { font-family: var(--font-heading); cursor:pointer; border:none; border-r
 .lb-box h3 { margin-bottom:6px; font-size:0.95rem; color:var(--text-muted); }
 
 .hidden { display: none !important; }
+
+/* When all winners determined, show only leaderboards in the main content */
+.main-content.leaderboards-only { grid-template-columns: 1fr; }
+.main-content.leaderboards-only .sidebar { grid-column: 1; }
+.main-content.leaderboards-only main { display: none; }
+.main-content.leaderboards-only .leaderboard-panel .list-container { max-height: calc(100vh - 200px); }
 
 /* Toasts */
 #toast-container { position: fixed; bottom: 100px; right: 30px; display:flex; flex-direction:column; gap:10px; z-index:1000; }

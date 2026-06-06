@@ -53,6 +53,7 @@ def add_event(event_type, message, bib=None):
     })
 
 
+
 def generate_excel(filename="race_results.xlsx"):
     """Helper to generate excel files for manual and auto exports."""
     wb = Workbook()
@@ -73,7 +74,7 @@ def generate_excel(filename="race_results.xlsx"):
             first_sheet = False
         else:
             ws = wb.create_sheet()
-        ws.title = f"Team_{bib}"
+        ws.title = f"Bib_{bib}"
 
         max_laps = get_max_laps(team["category"])
 
@@ -117,7 +118,7 @@ def generate_excel(filename="race_results.xlsx"):
         ws.cell(row=row_s + 2, column=1, value="Runner F Total").font = Font(bold=True)
         ws.cell(row=row_s + 2, column=2, value=format_time(team["runner_time"]["F"]))
         total = team["runner_time"]["M"] + team["runner_time"]["F"]
-        ws.cell(row=row_s + 3, column=1, value="Team Total").font = Font(bold=True)
+        ws.cell(row=row_s + 3, column=1, value="Bib Total").font = Font(bold=True)
         ws.cell(row=row_s + 3, column=2, value=format_time(total))
         ws.cell(row=row_s + 4, column=1, value="Status").font = Font(bold=True)
         sc = ws.cell(row=row_s + 4, column=2, value="DNF" if team["dnf"] else "Active")
@@ -129,14 +130,14 @@ def generate_excel(filename="race_results.xlsx"):
             ws.column_dimensions[letter].width = 30
 
     ws_lb = wb.create_sheet("Leaderboard")
-    hdrs = ["Rank", "Team", "Category", "Total Laps", "Total Time", "Runner M", "Runner F", "Status"]
+    hdrs = ["Rank", "Bib", "Category", "Total Laps", "Total Time", "Runner M", "Runner F", "Status"]
     for ci, h in enumerate(hdrs, 1):
         c = ws_lb.cell(row=1, column=ci, value=h)
         c.font = hdr_font; c.fill = hdr_fill; c.border = thin_border
 
     for rank, entry in enumerate(build_leaderboard(), 1):
         ws_lb.cell(row=rank + 1, column=1, value=rank).border = thin_border
-        ws_lb.cell(row=rank + 1, column=2, value=f"Team {entry['bib']}").border = thin_border
+        ws_lb.cell(row=rank + 1, column=2, value=f"Bib {entry['bib']}").border = thin_border
         ws_lb.cell(row=rank + 1, column=3, value=entry["category"]).border = thin_border
         ws_lb.cell(row=rank + 1, column=4, value=entry["laps"]).border = thin_border
         ws_lb.cell(row=rank + 1, column=5, value=entry["time_fmt"]).border = thin_border
@@ -169,11 +170,35 @@ def check_hour_state():
 
         # Check all teams for DNF
         for bib, team in race["teams"].items():
+            # Skip teams that already won their category (locked) or are DNF
+            if team.get("locked"):
+                continue
             if team["dnf"]:
                 continue
-            
             max_laps = get_max_laps(team["category"])
             laps_completed = len(team["laps"].get(hour, []))
+
+            # Duo-specific rule: each runner (M and F) must complete at least 2 laps in the hour
+            if team.get("category") == "duo":
+                laps_list = team["laps"].get(hour, [])
+                m_laps = sum(1 for lap in laps_list if lap.get("runner") == "M")
+                f_laps = sum(1 for lap in laps_list if lap.get("runner") == "F")
+                if m_laps < 2 or f_laps < 2:
+                    team["dnf"] = True
+                    team["dnf_info"] = {
+                        "reason": "min_runner_laps",
+                        "hour": hour,
+                        "m_laps": m_laps,
+                        "f_laps": f_laps
+                    }
+                    add_event(
+                        "elimination",
+                        f"Bib {bib} eliminated (insufficient runner laps: M:{m_laps}, F:{f_laps} in Hour {hour})",
+                        bib
+                    )
+                    continue
+
+            # Timeout/full-lap check (legacy rule)
             if laps_completed < max_laps:
                 team["dnf"] = True
                 team["dnf_info"] = {
@@ -183,7 +208,7 @@ def check_hour_state():
                 }
                 add_event(
                     "elimination",
-                    f"Team {bib} eliminated ({laps_completed}/{max_laps} laps in Hour {hour})",
+                    f"Bib {bib} eliminated ({laps_completed}/{max_laps} laps in Hour {hour})",
                     bib
                 )
 
@@ -244,6 +269,87 @@ def build_leaderboard():
     return entries
 
 
+def build_leaderboards():
+    """Build separate leaderboards per category and mark category winners."""
+    result = {"duo": [], "solo_m": [], "solo_f": []}
+
+    for bib, team in race["teams"].items():
+        total_laps = sum(len(laps) for laps in team["laps"].values())
+        total_time = team["runner_time"]["M"] + team["runner_time"]["F"]
+
+        cat = team["category"]
+        cat_display = "Duo"
+        if cat == "solo_m": cat_display = "Solo M"
+        if cat == "solo_f": cat_display = "Solo F"
+
+        entry = {
+            "bib": bib,
+            "category": cat_display,
+            "laps": total_laps,
+            "time": total_time,
+            "time_fmt": format_time(total_time),
+            "dnf": team["dnf"],
+            "runner_m": format_time(team["runner_time"]["M"]),
+            "runner_f": format_time(team["runner_time"]["F"]),
+            "status": "DNF" if team["dnf"] else "Active",
+            "winner": False
+        }
+
+        if cat in result:
+            result[cat].append(entry)
+
+    # sort each
+    for k in result:
+        result[k].sort(key=lambda x: (x["dnf"], -x["laps"], x["time"]))
+
+    # determine category winners (only if sole active remains and constraints met)
+    winners = get_category_winners()
+    for cat_key, wbib in winners.items():
+        if wbib is None:
+            continue
+        # mark the entry in the leaderboard and lock the team to prevent further changes
+        for e in result.get(cat_key, []):
+            if int(e["bib"]) == int(wbib):
+                e["winner"] = True
+                break
+        # set locked flag on the team so it cannot be modified/eliminated later
+        try:
+            t = race["teams"].get(int(wbib))
+            if t is not None:
+                t["locked"] = True
+                t["category_winner"] = True
+        except Exception:
+            pass
+
+    return result
+
+
+def get_category_winners():
+    """Return a dict of winners per category or None if not determined."""
+    winners = {"duo": None, "solo_m": None, "solo_f": None}
+
+    for cat in winners.keys():
+        active = [bib for bib, t in race["teams"].items() if t["category"] == cat and not t["dnf"]]
+        if len(active) == 1:
+            cand_bib = active[0]
+            cand = race["teams"][cand_bib]
+            # For duo require both runners to have at least 2 laps each
+            if cat == "duo":
+                m_laps = sum(1 for laps in cand["laps"].values() for lap in laps if lap["runner"] == "M")
+                f_laps = sum(1 for laps in cand["laps"].values() for lap in laps if lap["runner"] == "F")
+                if m_laps >= 2 and f_laps >= 2:
+                    winners[cat] = cand_bib
+                else:
+                    # If one runner failed to reach minimum, mark the bib DNF
+                    cand["dnf"] = True
+                    cand["dnf_info"] = {"reason": "min_laps", "M_laps": m_laps, "F_laps": f_laps}
+                    add_event("elimination", f"Bib {cand_bib} eliminated — duo runner requirement not met (M:{m_laps},F:{f_laps})", cand_bib)
+            else:
+                winners[cat] = cand_bib
+
+    return winners
+
+
 def build_status_response():
     """Build full race status response."""
     check_hour_state()
@@ -288,9 +394,32 @@ def build_status_response():
         "config": race["config"],
         "teams": teams_data,
         "leaderboard": build_leaderboard(),
+        "leaderboards": build_leaderboards(),
+        "winners_by_category": get_category_winners(),
         "events": race["events"][-100:],
         "winner": winner
     }
+
+
+def category_has_winner(category):
+    """Return True if the given category already has a declared winner (and ensure locks refreshed)."""
+    # Only trust explicit flags set on teams; do not auto-evaluate winners here.
+    for t in race["teams"].values():
+        if t.get("category") == category and t.get("category_winner"):
+            return True
+    return False
+
+
+def is_category_winner(bib):
+    """Return True if the bib has already been declared a category winner."""
+    winners = get_category_winners()
+    for cat, wbib in winners.items():
+        try:
+            if wbib is not None and int(wbib) == int(bib):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 # ================ ROUTES ================
@@ -329,7 +458,7 @@ def set_config():
 @app.route("/api/teams", methods=["POST"])
 def add_team():
     if race["state"] != "setup":
-        return jsonify({"error": "Cannot add teams after setup is complete."}), 409
+        return jsonify({"error": "Cannot add bibs after setup is complete."}), 409
 
     data = request.get_json(silent=True) or {}
     if not data:
@@ -341,7 +470,7 @@ def add_team():
         return jsonify({"error": "Bib must be a valid integer."}), 400
         
     if bib in race["teams"]:
-        return jsonify({"error": f"Team {bib} already exists."}), 409
+        return jsonify({"error": f"Bib {bib} already exists."}), 409
         
     category = data.get("category", "")
     if category not in ["duo", "solo_m", "solo_f"]:
@@ -359,7 +488,8 @@ def add_team():
         "runners": runners_active,
         "dnf": False,
         "dnf_info": None,
-        "runner_time": {"M": 0.0, "F": 0.0}
+        "runner_time": {"M": 0.0, "F": 0.0},
+        "milestones": {"M": False, "F": False}
     }
     
     return jsonify({"success": True, "teams": race["teams"]})
@@ -379,7 +509,7 @@ def handle_all_exceptions(e):
 @app.route("/api/teams/<int:bib>", methods=["DELETE"])
 def remove_team(bib):
     if race["state"] != "setup":
-        return jsonify({"error": "Cannot remove teams after setup is complete."}), 409
+        return jsonify({"error": "Cannot remove bibs after setup is complete."}), 409
         
     if bib in race["teams"]:
         del race["teams"][bib]
@@ -399,7 +529,7 @@ def start_hour():
 
     if race["state"] == "setup":
         if len(race["teams"]) < 2:
-            return jsonify({"error": "At least 2 teams are required to start."}), 400
+            return jsonify({"error": "At least 2 bibs are required to start."}), 400
         race["events"] = []
 
     race["state"] = "running"
@@ -434,10 +564,18 @@ def record_lap():
             return {"bib": bib_val, "success": False, "error": "Invalid bib number."}
 
         if bib_i not in race["teams"]:
-            return {"bib": bib_i, "success": False, "error": f"Team {bib_i} does not exist."}
+            return {"bib": bib_i, "success": False, "error": f"Bib {bib_i} does not exist."}
 
         team = race["teams"][bib_i]
         category = team["category"]
+
+        # Prevent recording laps if this bib is locked as a winner
+        if team.get("locked"):
+            return {"bib": bib_i, "success": False, "error": "Bib is locked as category winner; modifications disabled."}
+
+        # Prevent any laps in a category that already has a declared winner
+        if category_has_winner(category):
+            return {"bib": bib_i, "success": False, "error": "Category already has a declared winner; lap recording disabled."}
 
         runner = str(runner_val or '').upper().strip()
         if not runner:
@@ -452,17 +590,17 @@ def record_lap():
             return {"bib": bib_i, "success": False, "error": f"Invalid runner '{runner}'."}
 
         if category == "solo_m" and runner == "F":
-            return {"bib": bib_i, "success": False, "error": "Solo Male team cannot record Female laps."}
+            return {"bib": bib_i, "success": False, "error": "Solo Male bib cannot record Female laps."}
         if category == "solo_f" and runner == "M":
-            return {"bib": bib_i, "success": False, "error": "Solo Female team cannot record Male laps."}
+            return {"bib": bib_i, "success": False, "error": "Solo Female bib cannot record Male laps."}
 
         hour = race["current_hour"]
 
         if team["dnf"]:
-            return {"bib": bib_i, "success": False, "error": f"Team {bib_i} is eliminated."}
+            return {"bib": bib_i, "success": False, "error": f"Bib {bib_i} is eliminated."}
 
         if not team["runners"].get(runner, False):
-            return {"bib": bib_i, "success": False, "error": f"Runner {runner} of Team {bib_i} is marked DNF and cannot run."}
+            return {"bib": bib_i, "success": False, "error": f"Runner {runner} of Bib {bib_i} is marked DNF and cannot run."}
 
         now = time.time()
         clock_time = time.strftime("%H:%M:%S")
@@ -478,11 +616,12 @@ def record_lap():
             team["laps"][hour] = []
 
         if len(team["laps"][hour]) >= max_laps:
-            return {"bib": bib_i, "success": False, "error": f"Team {bib_i} already completed all {max_laps} laps for Hour {hour}."}
+            return {"bib": bib_i, "success": False, "error": f"Bib {bib_i} already completed all {max_laps} laps for Hour {hour}."}
 
         lap_entry = {
             "runner": runner,
             "lap_time": round(lap_time, 1),
+            "ts": now,
             "lap_time_fmt": format_time(lap_time),
             "clock_time": clock_time
         }
@@ -493,7 +632,17 @@ def record_lap():
         team["total_time"] += lap_time
 
         lap_num = len(team["laps"][hour])
-        add_event("lap", f"Team {bib_i} ({runner}) · Lap {lap_num} · {format_time(lap_time)}", bib_i)
+        add_event("lap", f"Bib {bib_i} ({runner}) · Lap {lap_num} · {format_time(lap_time)}", bib_i)
+
+        # Check milestone: for Duo each runner must complete at least 2 laps
+        try:
+            runner_total_laps = sum(1 for laps in team["laps"].values() for lap in laps if lap["runner"] == runner)
+        except Exception:
+            runner_total_laps = 0
+
+        if team.get("category") == "duo" and runner_total_laps >= 2 and not team.get("milestones", {}).get(runner, False):
+            team.setdefault("milestones", {})[runner] = True
+            add_event("milestone", f"Bib {bib_i} runner {runner} completed 2 laps", bib_i)
 
         return {"bib": bib_i, "success": True, "runner": runner, "hour": hour, "lap_number": lap_num, "lap_time": format_time(lap_time), "laps_remaining": max_laps - lap_num}
 
@@ -531,6 +680,94 @@ def record_lap():
     return jsonify(single_res)
 
 
+@app.route("/api/lap", methods=["DELETE"])
+def delete_lap():
+    # DELETE body may be stripped by some clients; accept JSON and delegate to core
+    data = request.get_json(silent=True) or {}
+    try:
+        bib = int(data.get('bib', ''))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid bib number."}), 400
+
+    payload, status = delete_lap_core(bib, data.get('hour'), data.get('runner'))
+    return (jsonify(payload), status)
+
+
+
+def delete_lap_core(bib, hour=None, runner=None):
+    """Core delete lap logic returning (payload, status_code)."""
+    if bib not in race["teams"]:
+        return {"error": f"Bib {bib} does not exist."}, 404
+
+    team = race["teams"][bib]
+    h = hour or race["current_hour"]
+    try:
+        h = int(h)
+    except (ValueError, TypeError):
+        return {"error": "Invalid hour."}, 400
+
+    if h not in team["laps"] or not team["laps"][h]:
+        return {"error": f"No laps recorded for Bib {bib} in Hour {h}."}, 400
+
+    removed = None
+    if runner:
+        runner = str(runner).upper()
+        for i in range(len(team["laps"][h]) - 1, -1, -1):
+            if team["laps"][h][i]["runner"] == runner:
+                removed = team["laps"][h].pop(i)
+                break
+        if removed is None:
+            return {"error": f"No lap by runner {runner} to delete for Bib {bib} in Hour {h}."}, 400
+    else:
+        removed = team["laps"][h].pop()
+
+    # adjust times
+    lap_time = removed.get("lap_time", 0)
+    r = removed.get("runner")
+    try:
+        team["runner_time"][r] = max(0, team["runner_time"].get(r, 0) - lap_time)
+    except Exception:
+        pass
+
+    team["total_time"] = max(0, team.get("total_time", 0) - lap_time)
+
+    # restore last_time_this_hour to the timestamp of the most recent remaining lap in this hour
+    remaining = team["laps"].get(h, [])
+    if remaining:
+        last_ts = remaining[-1].get("ts")
+        team["last_time_this_hour"] = last_ts
+    else:
+        team["last_time_this_hour"] = None
+
+    # revoke milestone if needed
+    try:
+        runner_total_laps = sum(1 for laps in team["laps"].values() for lap in laps if lap["runner"] == r)
+    except Exception:
+        runner_total_laps = 0
+
+    if team.get("milestones", {}).get(r, False) and runner_total_laps < 2:
+        team.setdefault("milestones", {})[r] = False
+        add_event("milestone_revoked", f"Bib {bib} runner {r} milestone revoked (now {runner_total_laps} laps)", bib)
+
+    add_event("delete", f"Deleted lap for Bib {bib} ({r}) · -{format_time(lap_time)}", bib)
+
+    return {"success": True, "bib": bib, "deleted": removed, "hour": h}, 200
+
+
+
+@app.route("/api/lap/delete", methods=["POST"])
+def delete_lap_post():
+    """Fallback endpoint to delete a lap via POST (some clients do not send bodies with DELETE)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        bib = int(data.get('bib', ''))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid bib number."}), 400
+
+    payload, status = delete_lap_core(bib, data.get('hour'), data.get('runner'))
+    return (jsonify(payload), status)
+
+
 @app.route("/api/dnf", methods=["POST"])
 def mark_dnf():
     check_hour_state()
@@ -544,7 +781,7 @@ def mark_dnf():
         return jsonify({"error": "Invalid bib number."}), 400
 
     if bib not in race["teams"]:
-        return jsonify({"error": f"Team {bib} does not exist."}), 404
+        return jsonify({"error": f"Bib {bib} does not exist."}), 404
 
     team = race["teams"][bib]
     category = team["category"]
@@ -557,24 +794,24 @@ def mark_dnf():
         return jsonify({"error": "Invalid runner. Must be 'M', 'F', or 'BOTH'."}), 400
 
     if team["dnf"]:
-        return jsonify({"error": f"Team {bib} is already eliminated."}), 409
+        return jsonify({"error": f"Bib {bib} is already eliminated."}), 409
 
     if runner == "BOTH":
         team["runners"]["M"] = False
         team["runners"]["F"] = False
         team["dnf"] = True
-        team["dnf_info"] = {"reason": "manual", "detail": "Team explicitly marked DNF"}
-        add_event("elimination", f"Team {bib} manually marked DNF", bib)
+        team["dnf_info"] = {"reason": "manual", "detail": "Bib explicitly marked DNF"}
+        add_event("elimination", f"Bib {bib} manually marked DNF", bib)
     else:
         if not team["runners"][runner]:
-            return jsonify({"error": f"Runner {runner} of Team {bib} is already marked DNF."}), 409
+            return jsonify({"error": f"Runner {runner} of Bib {bib} is already marked DNF."}), 409
             
         team["runners"][runner] = False
-        add_event("dnf", f"Runner {runner} of Team {bib} marked DNF", bib)
+        add_event("dnf", f"Runner {runner} of Bib {bib} marked DNF", bib)
         
         team["dnf"] = True
         team["dnf_info"] = {"reason": "manual", "detail": f"Runner {runner} DNF"}
-        add_event("elimination", f"Team {bib} eliminated — Runner {runner} DNF", bib)
+        add_event("elimination", f"Bib {bib} eliminated — Runner {runner} DNF", bib)
 
     return jsonify({"success": True, "bib": bib, "runner": runner, "team_eliminated": True})
 

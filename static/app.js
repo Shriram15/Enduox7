@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/race/status');
         const data = await res.json();
         if (Object.keys(data.teams).length < 2) {
-            return showToast("Need at least 2 teams to start the dashboard.", "error");
+            return showToast("Need at least 2 bibs to start the dashboard.", "error");
         }
         showDashboard();
         pollStatus();
@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
         regCount.innerText = Object.keys(teams).length;
         regTeamsContainer.innerHTML = Object.entries(teams).map(([bib, t]) => `
             <div class="reg-team-item">
-                <span><strong>Team ${bib}</strong> - ${t.category.toUpperCase()}</span>
+                <span><strong>Bib ${bib}</strong> - ${t.category.toUpperCase()}</span>
                 <button class="btn-remove" data-bib="${bib}">✖</button>
             </div>
         `).join('');
@@ -116,8 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
     teamsGrid.addEventListener('click', async (e) => {
         const btnLap = e.target.closest('.btn-lap');
         const btnDnf = e.target.closest('.btn-dnf');
-        
-        if (!btnLap && !btnDnf) return;
+        const btnDelete = e.target.closest('.btn-delete-lap');
+
+        // proceed if any relevant button was clicked
+        if (!btnLap && !btnDnf && !btnDelete) return;
 
         const card = e.target.closest('.team-card');
         const bib = card.dataset.bib;
@@ -129,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (btnDnf && !btnDnf.disabled) {
             const runner = btnDnf.dataset.runner;
-            if (confirm(`Are you sure you want to mark ${runner === 'BOTH' ? 'Team ' + bib : runner} as DNF?`)) {
+            if (confirm(`Are you sure you want to mark ${runner === 'BOTH' ? 'Bib ' + bib : runner} as DNF?`)) {
                 const res = await fetch('/api/dnf', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -138,9 +140,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 if (data.error) showToast(data.error, 'error');
                 else {
-                    showToast(data.team_eliminated ? `Team ${bib} eliminated!` : `Runner ${runner} of Team ${bib} DNF.`, 'success');
+                    showToast(data.team_eliminated ? `Bib ${bib} eliminated!` : `Runner ${runner} of Bib ${bib} DNF.`, 'success');
                     pollStatus();
                 }
+            }
+        }
+        if (btnDelete) {
+            if (!confirm(`Delete last lap for Bib ${bib}?`)) return;
+            // Try DELETE first, then fallback to POST /api/lap/delete for clients that strip DELETE bodies
+            let res = await fetch('/api/lap', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bib })
+            });
+            let data = null;
+            try { data = await res.json(); } catch (e) { data = { error: 'Delete failed' }; }
+
+            if (res.status !== 200 || data.error) {
+                // fallback
+                const res2 = await fetch('/api/lap/delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ bib })
+                });
+                const data2 = await res2.json();
+                if (data2.error) showToast(data2.error, 'error');
+                else {
+                    showToast(`Deleted last lap for Bib ${bib}`, 'success');
+                    pollStatus();
+                }
+            } else {
+                showToast(`Deleted last lap for Bib ${bib}`, 'success');
+                pollStatus();
             }
         }
     });
@@ -200,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isFastEntry) fastEntryError(data.error);
             else showToast(data.error, 'error');
         } else {
-            showToast(`Lap ${data.lap_number} recorded for Team ${bib} ${data.runner ? '('+data.runner+')' : ''}`, 'success');
+            showToast(`Lap ${data.lap_number} recorded for Bib ${bib} ${data.runner ? '('+data.runner+')' : ''}`, 'success');
             if (isFastEntry) fastEntryInput.value = '';
             pollStatus();
         }
@@ -306,16 +337,33 @@ document.addEventListener('DOMContentLoaded', () => {
             stateBadge.className = 'race-state-badge state-finished';
             btnStartHour.style.display = "none";
             fastEntryInput.disabled = true;
-            
-            if (data.winner && data.winner.winner) {
-                globalTimer.innerText = `Winner: Team ${data.winner.winner}`;
-            } else {
-                globalTimer.innerText = "All Eliminated";
-            }
+
+            // Show per-category winners summary (detailed winner badges are on leaderboards)
+            const winners = data.winners_by_category || {};
+            const parts = [];
+            if (winners.duo) parts.push(`Duo: ${winners.duo}`);
+            if (winners.solo_m) parts.push(`Solo M: ${winners.solo_m}`);
+            if (winners.solo_f) parts.push(`Solo F: ${winners.solo_f}`);
+            globalTimer.innerText = parts.length ? `Winners: ${parts.join(' • ')}` : 'Finished';
         }
 
         const tpl = document.getElementById('tpl-team-card');
         const grid = document.getElementById('teams-grid');
+        const mainContentEl = document.querySelector('.main-content');
+        const winnersGlobal = data.winners_by_category || {};
+        const allWinners = winnersGlobal && winnersGlobal.duo && winnersGlobal.solo_m && winnersGlobal.solo_f;
+
+        // If all categories have winners, switch to leaderboards-only view
+        if (allWinners) {
+            mainContentEl.classList.add('leaderboards-only');
+            document.getElementById('fast-entry-container').classList.add('hidden');
+            // remove team cards entirely
+            grid.innerHTML = '';
+            return; // nothing more to render for teams
+        } else {
+            mainContentEl.classList.remove('leaderboards-only');
+            document.getElementById('fast-entry-container').classList.remove('hidden');
+        }
         
         const teamKeys = Object.keys(data.teams);
         if (grid.children.length !== teamKeys.length && teamKeys.length > 0) {
@@ -334,7 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     catBadge.innerText = 'Solo M';
                     clone.querySelector('.btn-female').classList.add('hidden');
                     clone.querySelector('.dnf-f').classList.add('hidden');
-                    clone.querySelector('.dnf-m').classList.add('hidden'); // Solo just needs Team DNF
+                    clone.querySelector('.dnf-m').classList.add('hidden'); // Solo just needs Bib DNF
                 }
                 if (cat === 'solo_f') {
                     catBadge.innerText = 'Solo F';
@@ -352,13 +400,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = grid.querySelector(`.team-card[data-bib="${bib}"]`);
             if (!card) return;
 
-            const maxLaps = team.target_laps;
-            
+            const maxLaps = team.target_laps || 0;
+
             card.querySelector('.lap-count').innerText = `${team.laps_this_hour}/${maxLaps}`;
             card.querySelector('.total-laps').innerText = team.total_laps;
-            
-            const pct = (team.laps_this_hour / maxLaps) * 100;
+
+            const pct = maxLaps > 0 ? (team.laps_this_hour / maxLaps) * 100 : 0;
             card.querySelector('.progress-fill').style.width = `${Math.min(pct, 100)}%`;
+
+            // reset state classes
+            card.classList.remove('dnf', 'disabled', 'winner');
 
             if (team.dnf) {
                 card.classList.add('dnf');
@@ -366,8 +417,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dReason = team.dnf_info?.reason || '';
                 if (dReason === 'timeout') card.querySelector('.status-badge').innerText = `Timeout Hr ${team.dnf_info.hour}`;
             } else {
-                card.classList.remove('dnf');
                 card.querySelector('.status-badge').innerText = 'Active';
+            }
+
+            const winners = data.winners_by_category || {};
+            const catKey = team.category;
+            const winnerBib = winners[catKey] || winners[catKey.replace('_', '')];
+
+            const lapBtns = card.querySelectorAll('.btn-lap');
+            const dnfBtns = card.querySelectorAll('.btn-dnf');
+            const deleteBtn = card.querySelector('.btn-delete-lap');
+
+            if (winnerBib) {
+                // category has a winner; disable lap/dnf buttons for all cards in category
+                if (parseInt(bib) === parseInt(winnerBib)) {
+                    card.querySelector('.winner-badge').classList.remove('hidden');
+                    card.classList.add('winner', 'disabled');
+                } else {
+                    card.querySelector('.winner-badge').classList.add('hidden');
+                    card.classList.add('disabled');
+                }
+                lapBtns.forEach(b => b.disabled = true);
+                dnfBtns.forEach(b => b.disabled = true);
+                if (deleteBtn) deleteBtn.disabled = false; // keep delete enabled
+            } else {
+                // normal operation
+                card.querySelector('.winner-badge').classList.add('hidden');
+                lapBtns.forEach(b => b.disabled = false);
+                dnfBtns.forEach(b => b.disabled = false);
+                if (deleteBtn) deleteBtn.disabled = false;
             }
 
             const btnM = card.querySelector('.btn-male');
@@ -379,40 +457,52 @@ document.addEventListener('DOMContentLoaded', () => {
             const isRunningState = (data.state === 'running');
             const atMax = (team.laps_this_hour >= maxLaps);
 
-            if (team.category !== 'solo_f') btnM.disabled = team.dnf || !team.runners.M || !isRunningState || atMax;
-            if (team.category !== 'solo_m') btnF.disabled = team.dnf || !team.runners.F || !isRunningState || atMax;
+            if (!winnerBib) {
+                if (btnM) btnM.disabled = team.dnf || !team.runners.M || !isRunningState || atMax;
+                if (btnF) btnF.disabled = team.dnf || !team.runners.F || !isRunningState || atMax;
 
-            dnfM.disabled = team.dnf || !team.runners.M;
-            dnfF.disabled = team.dnf || !team.runners.F;
-            dnfAll.disabled = team.dnf;
+                if (dnfM) dnfM.disabled = team.dnf || !team.runners.M;
+                if (dnfF) dnfF.disabled = team.dnf || !team.runners.F;
+                if (dnfAll) dnfAll.disabled = team.dnf;
+            } else {
+                // when category winner exists, lap/dnf already disabled; ensure DNF buttons disabled
+                if (btnM) btnM.disabled = true;
+                if (btnF) btnF.disabled = true;
+                if (dnfM) dnfM.disabled = true;
+                if (dnfF) dnfF.disabled = true;
+                if (dnfAll) dnfAll.disabled = true;
+            }
         });
 
         // Populate separate leaderboard boxes per category
-        const duoList = data.leaderboard.filter(e => e.category === 'Duo');
-        const solomList = data.leaderboard.filter(e => e.category === 'Solo M');
-        const solofList = data.leaderboard.filter(e => e.category === 'Solo F');
+        const duoList = (data.leaderboards && data.leaderboards.duo) ? data.leaderboards.duo : (data.leaderboard || []).filter(e => e.category === 'Duo');
+        const solomList = (data.leaderboards && data.leaderboards.solo_m) ? data.leaderboards.solo_m : (data.leaderboard || []).filter(e => e.category === 'Solo M');
+        const solofList = (data.leaderboards && data.leaderboards.solo_f) ? data.leaderboards.solo_f : (data.leaderboard || []).filter(e => e.category === 'Solo F');
 
         updateList('leaderboard-duo', duoList, (entry, i) => `
-            <div class="lb-item ${entry.dnf ? 'dnf' : ''}">
+            <div class="lb-item ${entry.dnf ? 'dnf' : ''} ${entry.winner ? 'winner' : ''}">
                 <span class="lb-rank">${i+1}</span>
-                <span class="lb-bib">Team ${entry.bib} <small>(${entry.category})</small></span>
+                <span class="lb-bib">Bib ${entry.bib} <small>(${entry.category})</small></span>
                 <span class="lb-laps">${entry.laps} Laps</span>
+                ${entry.winner ? '<span class="lb-winner">🏆 Winner</span>' : ''}
             </div>
         `);
 
         updateList('leaderboard-solom', solomList, (entry, i) => `
-            <div class="lb-item ${entry.dnf ? 'dnf' : ''}">
+            <div class="lb-item ${entry.dnf ? 'dnf' : ''} ${entry.winner ? 'winner' : ''}">
                 <span class="lb-rank">${i+1}</span>
-                <span class="lb-bib">Team ${entry.bib} <small>(${entry.category})</small></span>
+                <span class="lb-bib">Bib ${entry.bib} <small>(${entry.category})</small></span>
                 <span class="lb-laps">${entry.laps} Laps</span>
+                ${entry.winner ? '<span class="lb-winner">🏆 Winner</span>' : ''}
             </div>
         `);
 
         updateList('leaderboard-solof', solofList, (entry, i) => `
-            <div class="lb-item ${entry.dnf ? 'dnf' : ''}">
+            <div class="lb-item ${entry.dnf ? 'dnf' : ''} ${entry.winner ? 'winner' : ''}">
                 <span class="lb-rank">${i+1}</span>
-                <span class="lb-bib">Team ${entry.bib} <small>(${entry.category})</small></span>
+                <span class="lb-bib">Bib ${entry.bib} <small>(${entry.category})</small></span>
                 <span class="lb-laps">${entry.laps} Laps</span>
+                ${entry.winner ? '<span class="lb-winner">🏆 Winner</span>' : ''}
             </div>
         `);
 
